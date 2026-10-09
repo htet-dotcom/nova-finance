@@ -7,10 +7,11 @@ import { Icon, useToast } from './ui';
 import { Budget } from './views/Budget';
 import { Dashboard } from './views/Dashboard';
 import { Exchange } from './views/Exchange';
+import { Reports } from './views/Reports';
 import { Settings } from './views/Settings';
 import { Transactions } from './views/Transactions';
 
-const ROUTES = ['dashboard', 'transactions', 'budget', 'exchange', 'settings'] as const;
+const ROUTES = ['dashboard', 'transactions', 'budget', 'exchange', 'settings', 'reports'] as const;
 type Route = (typeof ROUTES)[number];
 
 function parseHash(): { route: Route; sub?: string } {
@@ -74,6 +75,8 @@ export function App() {
     { r: 'exchange', icon: 'swap', label: t.navExchange },
     { r: 'settings', icon: 'gear', label: t.navSettings },
   ];
+  // Desktop sidebar has room for Reports; on mobile it is reached from Dashboard and Budget.
+  const sideNav = [...nav.slice(0, 3), { r: 'reports' as Route, icon: 'file', label: t.navReports }, ...nav.slice(3)];
 
   return (
     <div className="shell">
@@ -86,7 +89,7 @@ export function App() {
           <Icon name="plus" /> {t.addTransaction}
         </button>
         <nav aria-label="Main">
-          {nav.map((n) => (
+          {sideNav.map((n) => (
             <a key={n.r} href={`#/${n.r}`} className={`side-link ${route === n.r ? 'active' : ''}`} aria-current={route === n.r ? 'page' : undefined}>
               <Icon name={n.icon} /> {n.label}
             </a>
@@ -112,6 +115,7 @@ export function App() {
         {route === 'budget' && <Budget key={sub ?? 'summary'} initialTab={sub === 'categories' || sub === 'rules' ? sub : 'summary'} />}
         {route === 'exchange' && <Exchange />}
         {route === 'settings' && <Settings go={go} />}
+        {route === 'reports' && <Reports />}
       </main>
 
       <button className="fab" onClick={() => setForm({})} aria-label={t.addTransaction} data-testid="add-fab">

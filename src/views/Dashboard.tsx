@@ -49,9 +49,14 @@ export function Dashboard({ onEdit, go }: { onEdit: (tx: Transaction) => void; g
           <p className="eyebrow">{monthYear(today)}</p>
           <h1 className="title">{t.tagline}</h1>
         </div>
-        <button className="btn btn-soft" onClick={() => setSharing(true)} data-testid="share-open">
-          <Icon name="share" size={18} /> <span className="hide-xs">{t.share}</span>
-        </button>
+        <div className="head-actions">
+          <button className="btn btn-soft" onClick={() => go('reports')} data-testid="open-reports" aria-label={t.navReports}>
+            <Icon name="file" size={18} /> <span className="hide-xs">{t.navReports}</span>
+          </button>
+          <button className="btn btn-soft" onClick={() => setSharing(true)} data-testid="share-open" aria-label={t.share}>
+            <Icon name="share" size={18} /> <span className="hide-xs">{t.share}</span>
+          </button>
+        </div>
       </div>
 
       <section className={`hero hero-${tone}`} data-testid="hero" data-status={b.status}>

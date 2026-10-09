@@ -17,6 +17,9 @@ export function Budget({ initialTab = 'summary' }: { initialTab?: Tab }) {
     <div className="view" data-testid="budget">
       <div className="view-head">
         <h1 className="title">{t.navBudget}</h1>
+        <a className="btn btn-soft" href="#/reports" data-testid="budget-open-reports">
+          <Icon name="file" size={18} /> {t.navReports}
+        </a>
       </div>
       <div className="segmented" role="tablist">
         {(['summary', 'rules', 'categories'] as const).map((k) => (

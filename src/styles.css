@@ -342,6 +342,11 @@ a {
   justify-content: space-between;
   gap: 12px;
 }
+.head-actions {
+  display: flex;
+  gap: 8px;
+  flex: none;
+}
 .eyebrow {
   font-size: 0.8rem;
   color: var(--muted);
