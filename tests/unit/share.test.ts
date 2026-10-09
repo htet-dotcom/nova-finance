@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { computeBudget } from '../../src/lib/engine';
-import { buildDailySummary, canNativeShare, copyText, shareText, telegramShareUrl, type SummaryLabels } from '../../src/lib/share';
+import { buildDailySummary, canNativeShare, canShareFiles, copyText, shareFiles, shareText, telegramShareUrl, type SummaryLabels } from '../../src/lib/share';
 import { input, tx } from './helpers';
 
 const labels: SummaryLabels = {
@@ -77,5 +77,36 @@ describe('sharing', () => {
     expect(url.startsWith('https://t.me/share/url?')).toBe(true);
     const text = new URL(url).searchParams.get('text');
     expect(text).toBe('Spent: ฿72\nStatus: ok & fine');
+  });
+});
+
+describe('file sharing (reports)', () => {
+  const file = () => new File(['%PDF-1.4'], 'nova-finance-daily-2026-10-09.pdf', { type: 'application/pdf' });
+
+  it('shares real files when canShare({ files }) is true', async () => {
+    const share = vi.fn().mockResolvedValue(undefined);
+    const canShare = vi.fn().mockReturnValue(true);
+    const f = file();
+    expect(canShareFiles([f], { share, canShare })).toBe(true);
+    expect(await shareFiles([f], { title: 'Report' }, { share, canShare })).toBe('shared');
+    expect(canShare).toHaveBeenCalledWith({ files: [f] });
+    expect(share.mock.calls[0][0].files).toEqual([f]);
+  });
+
+  it('unsupported when canShare is missing or rejects files (no share attempted)', async () => {
+    const share = vi.fn();
+    expect(await shareFiles([file()], { title: 'R' }, { share })).toBe('unsupported');
+    expect(await shareFiles([file()], { title: 'R' }, { share, canShare: () => false })).toBe('unsupported');
+    expect(await shareFiles([file()], { title: 'R' }, { canShare: () => true })).toBe('unsupported');
+    expect(await shareFiles([file()], { title: 'R' }, { share, canShare: () => { throw new TypeError('bad'); } })).toBe('unsupported');
+    expect(await shareFiles([], { title: 'R' }, { share, canShare: () => true })).toBe('unsupported');
+    expect(share).not.toHaveBeenCalled();
+  });
+
+  it('never reports "shared" unless share() resolves', async () => {
+    const env = (err: string) => ({ canShare: () => true, share: vi.fn().mockRejectedValue(Object.assign(new Error('x'), { name: err })) });
+    expect(await shareFiles([file()], { title: 'R' }, env('AbortError'))).toBe('cancelled');
+    expect(await shareFiles([file()], { title: 'R' }, env('NotAllowedError'))).toBe('needs-gesture');
+    expect(await shareFiles([file()], { title: 'R' }, env('DataError'))).toBe('failed');
   });
 });

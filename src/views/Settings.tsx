@@ -5,20 +5,9 @@ import { allCurrencies, BUILTIN_CURRENCIES, CURRENCY_CODE_RE } from '../lib/curr
 import { useStore } from '../store';
 import { Icon, useConfirm, useFmt, useToast } from '../ui';
 import { useInstallPrompt } from '../pwa';
+import { downloadText as download } from '../download';
 
 declare const __APP_VERSION__: string;
-
-function download(name: string, content: string, type: string) {
-  const blob = new Blob([content], { type });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
-}
 
 const BACKUP_STALE_MS = 14 * 24 * 60 * 60 * 1000;
 

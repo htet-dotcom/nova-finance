@@ -114,3 +114,46 @@ export async function shareText(text: string, title: string, env: ShareEnv = bro
 export function telegramShareUrl(text: string): string {
   return `https://t.me/share/url?url=${encodeURIComponent(' ')}&text=${encodeURIComponent(text)}`;
 }
+
+// ---------------------------------------------------------------------------
+// File sharing (reports)
+// ---------------------------------------------------------------------------
+
+/**
+ * 'needs-gesture': the browser refused because the tap that started the share
+ * expired while files were being generated (Safari); retrying from a new tap works.
+ */
+export type FileShareOutcome = 'shared' | 'cancelled' | 'unsupported' | 'needs-gesture' | 'failed';
+
+/** True only when the browser says it can share these exact files. */
+export function canShareFiles(files: File[], env: ShareEnv = browserEnv()): boolean {
+  if (typeof env.share !== 'function' || typeof env.canShare !== 'function' || !files.length) return false;
+  try {
+    return env.canShare({ files });
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Share generated files through the native share sheet (Telegram, Messenger, …).
+ * 'shared' is returned only when navigator.share() resolves — i.e. the browser
+ * reports the share completed. Callers must fall back (download / text) on
+ * 'unsupported' or 'failed'.
+ */
+export async function shareFiles(
+  files: File[],
+  meta: { title: string; text?: string },
+  env: ShareEnv = browserEnv(),
+): Promise<FileShareOutcome> {
+  if (!canShareFiles(files, env)) return 'unsupported';
+  try {
+    await env.share!({ files, title: meta.title, ...(meta.text ? { text: meta.text } : {}) });
+    return 'shared';
+  } catch (e) {
+    const name = (e as DOMException)?.name;
+    if (name === 'AbortError') return 'cancelled';
+    if (name === 'NotAllowedError') return 'needs-gesture';
+    return 'failed';
+  }
+}
