@@ -36,6 +36,21 @@ npm run e2e        # end-to-end tests (Playwright) against a production build
 PROD_URL=https://<host>/<path>/ npm run e2e   # smoke-test a deployment
 ```
 
+### Android app (APK)
+The same code is packaged as a native Android app with [Capacitor](https://capacitorjs.com/)
+(`capacitor.config.ts`, package `com.lin.novafinance`). In the app, file export/sharing uses the
+native share sheet and `Documents/NovaFinance`, biometric unlock uses the Android biometric prompt,
+and the Android back button closes sheets / navigates back.
+
+Requirements: JDK 21 and the Android SDK (`ANDROID_HOME`). Signing: create `android/keystore.properties`
+(`storeFile`, `storePassword`, `keyAlias`, `keyPassword`), which is git-ignored. **Keep the keystore safe:
+updates must be signed with the same key.**
+```bash
+npm run android:apk    # → android/app/build/outputs/apk/release/app-release.apk
+npm run android:assets # regenerate icons & splash from the logo
+```
+Data in the Android app is separate from the browser PWA: move it with Settings → Export backup / Import backup.
+
 Architecture: `src/lib/` holds pure, tested logic (engine, dates, fx, backup, categories, share, db,
 accounts, goals, insights, lock). Data schema v2 (accounts, transfers, goals) migrates v1 databases and
 v1 backup files automatically.

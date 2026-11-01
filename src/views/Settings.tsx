@@ -7,6 +7,7 @@ import { useStore } from '../store';
 import { Icon, useConfirm, useFmt, useToast } from '../ui';
 import { useInstallPrompt } from '../pwa';
 import { downloadText as download } from '../download';
+import { canShareFiles as canShareFileList, shareFiles } from '../lib/share';
 
 declare const __APP_VERSION__: string;
 
@@ -25,27 +26,25 @@ export function Settings({ go }: { go: (route: string) => void }) {
   const [ccError, setCcError] = useState(false);
   const currencies = allCurrencies(s.customCurrencies);
 
+  const savedToast = (where: string | null) => toast(where ? t.savedTo(where) : t.exported, 'success');
   const exportJson = async () => {
     const json = JSON.stringify(buildBackup(data, __APP_VERSION__), null, 2);
-    download(backupFileName('json'), json, 'application/json');
+    const where = await download(backupFileName('json'), json, 'application/json');
     await markBackedUp();
-    toast(t.exported, 'success');
+    savedToast(where);
   };
   const shareJson = async () => {
     const json = JSON.stringify(buildBackup(data, __APP_VERSION__), null, 2);
     const file = new File([json], backupFileName('json'), { type: 'application/json' });
-    try {
-      await navigator.share({ files: [file], title: 'Nova Finance backup' });
+    const r = await shareFiles([file], { title: 'Nova Finance backup' });
+    if (r === 'shared') {
       await markBackedUp();
       toast(t.exported, 'success');
-    } catch (e) {
-      if ((e as DOMException).name !== 'AbortError') toast((e as Error).message, 'error');
-    }
+    } else if (r !== 'cancelled') toast(t.shareFailed, 'error');
   };
-  const canShareFiles = typeof navigator !== 'undefined' && !!navigator.canShare?.({ files: [new File(['x'], 'x.json', { type: 'application/json' })] });
-  const exportCsv = () => {
-    download(backupFileName('csv'), buildCsv(data), 'text/csv;charset=utf-8');
-    toast(t.exported, 'success');
+  const canShareFiles = canShareFileList([new File(['x'], 'x.json', { type: 'application/json' })]);
+  const exportCsv = async () => {
+    savedToast(await download(backupFileName('csv'), buildCsv(data), 'text/csv;charset=utf-8'));
   };
   const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];

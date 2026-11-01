@@ -1,3 +1,4 @@
+import { isNative, nativeShare } from '../native';
 import { formatMoney } from './currency';
 import type { BudgetSnapshot } from './engine';
 import type { CustomCurrency } from './types';
@@ -54,6 +55,14 @@ interface ShareEnv {
 
 function browserEnv(): ShareEnv {
   const nav = typeof navigator !== 'undefined' ? navigator : undefined;
+  // Android app: the native share sheet handles text and files.
+  if (isNative) {
+    return {
+      share: nativeShare,
+      canShare: () => true,
+      writeText: nav?.clipboard?.writeText ? nav.clipboard.writeText.bind(nav.clipboard) : undefined,
+    };
+  }
   return {
     share: nav?.share?.bind(nav),
     canShare: nav?.canShare?.bind(nav),

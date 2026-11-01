@@ -248,6 +248,7 @@ const en = {
   undoDone: 'Import undone',
   undoAvailable: (d: string) => `Safety copy from ${d}`,
   exported: 'Backup saved',
+  savedTo: (where: string) => `Saved to ${where}`,
   privacyTitle: 'Privacy',
   privacyText:
     'Your financial data is stored only on this device (in the browser’s IndexedDB). Nothing is uploaded. No account, no analytics, no bank connections. The only network request is for reference exchange rates, which sends no personal data.',
@@ -696,6 +697,7 @@ const my: Partial<Dict> = {
   undoImport: 'နောက်ဆုံးသွင်းမှုကို ပြန်ဖျက်ရန်',
   undoDone: 'သွင်းမှုကို ပြန်ဖျက်ပြီးပါပြီ',
   undoAvailable: (d: string) => `${d} မှ လုံခြုံရေးမိတ္တူ`,
+  savedTo: (where: string) => `${where} တွင် သိမ်းပြီး`,
   exported: 'အရန်ဖိုင် သိမ်းပြီးပါပြီ',
   privacyTitle: 'ကိုယ်ရေးလုံခြုံမှု',
   privacyText:

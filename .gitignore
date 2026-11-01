@@ -4,3 +4,14 @@ test-results
 playwright-report
 *.log
 .DS_Store
+
+# Android signing secrets: never commit
+android/keystore.properties
+*.jks
+*.keystore
+# Android build output
+android/app/build
+android/build
+android/.gradle
+*.apk
+*.aab
