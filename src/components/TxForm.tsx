@@ -1,11 +1,13 @@
 import { useMemo, useState } from 'react';
 import { sortAccounts } from '../lib/accounts';
+import { parseAmountExpr } from '../lib/calc';
 import { sortCategories } from '../lib/categories';
 import { allCurrencies, parseAmount } from '../lib/currency';
 import { addDays, isDateKey } from '../lib/dates';
 import type { Transaction, TxType } from '../lib/types';
 import { useStore, ValidationError } from '../store';
 import { Sheet, useConfirm, useFmt, useToast } from '../ui';
+import { CalcButton, ExprPreview } from './Calculator';
 
 const LAST_CUR_KEY = 'nf.lastCurrency';
 const LAST_ACC_KEY = 'nf.lastAccount';
@@ -56,7 +58,7 @@ export function TxForm({ initial, defaultType = 'expense', onClose }: { initial?
 
   const submit = async (e?: React.FormEvent) => {
     e?.preventDefault();
-    const amount = parseAmount(amountText);
+    const amount = parseAmountExpr(amountText, parseAmount);
     if (amount === null || amount <= 0) return setError(t.invalidAmount);
     if (!isDateKey(date)) return setError(t.invalidDate);
     if (freq !== 'none' && until && (!isDateKey(until) || until < date)) return setError(t.invalidDate);
@@ -159,7 +161,9 @@ export function TxForm({ initial, defaultType = 'expense', onClose }: { initial?
             autoFocus={!initial}
             data-testid="tx-amount"
           />
+          <CalcButton value={amountText} currency={currency} onResult={(v) => { setAmountText(v); setError(null); }} />
         </div>
+        <ExprPreview text={amountText} currency={currency} />
         {error && (
           <p className="field-error" role="alert">
             {error}
