@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { parseAmountExpr } from '../lib/calc';
 import { allCurrencies, parseAmount } from '../lib/currency';
 import { isDateKey } from '../lib/dates';
 import { CATEGORY_COLORS } from '../lib/defaults';
@@ -7,6 +8,7 @@ import type { Goal } from '../lib/types';
 import type { Dict } from '../i18n';
 import { useStore } from '../store';
 import { Icon, Progress, Sheet, useConfirm, useFmt, useToast } from '../ui';
+import { CalcButton, ExprPreview } from './Calculator';
 
 export function goalErrorText(t: Dict, e: unknown): string {
   if (e instanceof GoalOpError) {
@@ -141,7 +143,7 @@ export function GoalDetail({ goal, onEdit, onClose }: { goal: Goal; onEdit: () =
 
   const add = async (e?: React.FormEvent) => {
     e?.preventDefault();
-    const v = parseAmount(amountText);
+    const v = parseAmountExpr(amountText, parseAmount);
     if (v === null || v <= 0) return setError(t.invalidAmount);
     try {
       await addGoalContribution(goal.id, { amount: mode === 'deposit' ? v : -v, date: day, note });
@@ -183,7 +185,11 @@ export function GoalDetail({ goal, onEdit, onClose }: { goal: Goal; onEdit: () =
         <div className="field-row">
           <label className="field">
             <span>{t.amount} ({cur})</span>
-            <input className="input" inputMode="decimal" value={amountText} placeholder="0" onChange={(e) => { setAmountText(e.target.value); setError(null); }} data-testid="goal-amount" />
+            <span className="input-calc">
+              <input className="input" inputMode="decimal" value={amountText} placeholder="0" onChange={(e) => { setAmountText(e.target.value); setError(null); }} data-testid="goal-amount" />
+              <CalcButton value={amountText} currency={cur} onResult={(v) => { setAmountText(v); setError(null); }} testId="goal-calc" />
+            </span>
+            <ExprPreview text={amountText} currency={cur} />
           </label>
           <label className="field">
             <span>{t.date}</span>

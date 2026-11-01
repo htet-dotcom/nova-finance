@@ -11,6 +11,7 @@ import { computeBudget, type BudgetSnapshot } from './lib/engine';
 import { makeManualRate, openErApiProvider, providerResultToRates, rateId } from './lib/fx';
 import type { Account, AppData, Category, Goal, Recurrence, Settings, Transaction, Transfer, TxType } from './lib/types';
 import { dictionaries, type Dict } from './i18n';
+import { setSystemBarsDark } from './native';
 
 export interface TxInput {
   id?: string;
@@ -405,6 +406,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     root.lang = data.settings.language;
     const dark = theme === 'dark' || (theme === 'system' && window.matchMedia?.('(prefers-color-scheme: dark)').matches);
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#0b1220' : '#0f766e');
+    void setSystemBarsDark(!!dark);
   }, [data.settings.theme, data.settings.language]);
 
   const value: Store = {

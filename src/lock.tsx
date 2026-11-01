@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import * as db from './lib/db';
+import { onAppActive } from './native';
 import {
   biometricAvailable,
   createLockConfig,
@@ -38,6 +39,7 @@ export function useLock(): LockApi {
 }
 
 export function LockProvider({ children }: { children: ReactNode }) {
+  const { t } = useStore();
   const [config, setConfig] = useState<LockConfig | null | undefined>(undefined);
   const [locked, setLocked] = useState(true);
   const [bioAvailable, setBioAvailable] = useState(false);
@@ -68,21 +70,33 @@ export function LockProvider({ children }: { children: ReactNode }) {
 
   // Auto-lock after time in the background; blur while hidden so the app switcher shows nothing.
   useEffect(() => {
+    // Both the page visibility and (in the Android app) the native app state feed
+    // these two idempotent handlers, so whichever fires first wins.
     let hiddenAt = 0;
-    const onVis = () => {
+    const goHidden = () => {
+      if (hiddenAt) return;
+      hiddenAt = Date.now();
       const cfg = cfgRef.current;
-      if (document.visibilityState === 'hidden') {
-        hiddenAt = Date.now();
-        if (cfg?.hideInBackground) document.body.classList.add('privacy-blur');
-        if (cfg && cfg.autoLockSeconds === 0) setLocked(true);
-      } else {
-        document.body.classList.remove('privacy-blur');
-        if (cfg && hiddenAt && Date.now() - hiddenAt >= cfg.autoLockSeconds * 1000) setLocked(true);
-        hiddenAt = 0;
-      }
+      if (cfg?.hideInBackground) document.body.classList.add('privacy-blur');
+      if (cfg && cfg.autoLockSeconds === 0) setLocked(true);
     };
+    const goVisible = () => {
+      document.body.classList.remove('privacy-blur');
+      if (!hiddenAt) return;
+      const cfg = cfgRef.current;
+      if (cfg && Date.now() - hiddenAt >= cfg.autoLockSeconds * 1000) setLocked(true);
+      hiddenAt = 0;
+    };
+    const onVis = () => (document.visibilityState === 'hidden' ? goHidden() : goVisible());
     document.addEventListener('visibilitychange', onVis);
-    return () => document.removeEventListener('visibilitychange', onVis);
+    let off = () => {};
+    let disposed = false;
+    void onAppActive((active) => (active ? goVisible() : goHidden())).then((f) => (disposed ? f() : (off = f)));
+    return () => {
+      disposed = true;
+      document.removeEventListener('visibilitychange', onVis);
+      off();
+    };
   }, []);
 
   const save = useCallback(async (cfg: LockConfig | null) => {
@@ -108,7 +122,7 @@ export function LockProvider({ children }: { children: ReactNode }) {
     },
     enableBiometric: async () => {
       if (!cfgRef.current) return;
-      const credentialId = await registerBiometric();
+      const credentialId = await registerBiometric(t.lockUseBiometric);
       await save({ ...cfgRef.current, credentialId });
     },
     disableBiometric: async () => {
@@ -202,7 +216,7 @@ function LockScreen({ config, onUnlock, onReset }: { config: LockConfig; onUnloc
   }, [press, back]);
 
   const bio = async () => {
-    if (config.credentialId && (await verifyBiometric(config.credentialId))) {
+    if (config.credentialId && (await verifyBiometric(config.credentialId, t.lockUseBiometric))) {
       await db.saveLockAttempts(null);
       onUnlock();
     } else setError(t.lockBiometricFailed);

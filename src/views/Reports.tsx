@@ -62,8 +62,8 @@ export function Reports() {
     try {
       const files = await generate();
       if (action === 'export') {
-        await downloadFiles(files);
-        setStatus({ s: 'done', text: t.reportExported(files.length) });
+        const where = await downloadFiles(files);
+        setStatus({ s: 'done', text: where ? `${t.reportExported(files.length)} · ${t.savedTo(where)}` : t.reportExported(files.length) });
         return;
       }
       const outcome = await shareFiles(files, { title: files[0].name });

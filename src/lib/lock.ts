@@ -4,6 +4,11 @@
 // app UI. It does not encrypt the IndexedDB data, so it is not protection against someone
 // with full access to the browser profile.
 
+import { isNative, nativeBiometricAvailable, nativeBiometricVerify } from '../native';
+
+/** Marker stored instead of a WebAuthn id when the Android app's biometric prompt is used. */
+export const NATIVE_BIOMETRIC = 'native';
+
 export const PIN_MIN = 4;
 export const PIN_MAX = 8;
 const ITERATIONS = 210_000;
@@ -105,6 +110,7 @@ export function remainingBlockMs(a: LockAttempts | undefined, now = Date.now()):
 // ---------------------------------------------------------------------------
 
 export async function biometricAvailable(): Promise<boolean> {
+  if (isNative) return nativeBiometricAvailable();
   try {
     return (
       typeof window !== 'undefined' &&
@@ -118,7 +124,12 @@ export async function biometricAvailable(): Promise<boolean> {
 }
 
 /** Register a device credential; returns its id. Throws if the user cancels. */
-export async function registerBiometric(): Promise<string> {
+export async function registerBiometric(reason = 'Nova Finance'): Promise<string> {
+  if (isNative) {
+    // The OS keeps the enrolled fingerprints/face; confirm once that it works.
+    if (!(await nativeBiometricVerify(reason))) throw new Error('cancelled');
+    return NATIVE_BIOMETRIC;
+  }
   const cred = (await navigator.credentials.create({
     publicKey: {
       challenge: crypto.getRandomValues(new Uint8Array(32)),
@@ -138,7 +149,8 @@ export async function registerBiometric(): Promise<string> {
 }
 
 /** Ask the device to verify the user with the registered credential. */
-export async function verifyBiometric(credentialId: string): Promise<boolean> {
+export async function verifyBiometric(credentialId: string, reason = 'Nova Finance'): Promise<boolean> {
+  if (credentialId === NATIVE_BIOMETRIC) return isNative && nativeBiometricVerify(reason);
   try {
     const res = await navigator.credentials.get({
       publicKey: {

@@ -4,6 +4,7 @@ import { MANUAL_LABEL, rateStatus, resolveRate, type RateStatus } from '../lib/f
 import type { ExchangeRate } from '../lib/types';
 import { useStore } from '../store';
 import { Icon, useConfirm, useFmt, useToast } from '../ui';
+import { Calculator } from '../components/Calculator';
 
 export function Exchange() {
   const { data, t, online, refreshRates, rateRefresh, saveManualRate, deleteRate, updateSettings } = useStore();
@@ -15,6 +16,7 @@ export function Exchange() {
 
   const [from, setFrom] = useState('THB');
   const [to, setTo] = useState('MMK');
+  const [calcOpen, setCalcOpen] = useState(false);
   const [amountText, setAmountText] = useState('1000');
   const amount = parseAmount(amountText);
 
@@ -64,6 +66,9 @@ export function Exchange() {
     <div className="view" data-testid="exchange">
       <div className="view-head">
         <h1 className="title">{t.navExchange}</h1>
+        <button className="btn btn-soft" onClick={() => setCalcOpen(true)} data-testid="open-pocket-calc" aria-label={t.pocketCalc}>
+          <Icon name="calc" size={18} /> <span className="hide-xs">{t.pocketCalc}</span>
+        </button>
         {s.rateProviderEnabled && (
           <button className="btn btn-soft" onClick={async () => { await refreshRates(); }} disabled={!online || rateRefresh.status === 'loading'} data-testid="refresh-rates">
             <Icon name="refresh" size={18} /> <span className="hide-xs">{rateRefresh.status === 'loading' ? t.refreshing : t.refreshRates}</span>
@@ -216,6 +221,7 @@ export function Exchange() {
         )}
       </section>
       {confirm.node}
+      {calcOpen && <Calculator onClose={() => setCalcOpen(false)} />}
     </div>
   );
 }

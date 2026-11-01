@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { ACCOUNT_ICONS, AccountOpError, sortAccounts } from '../lib/accounts';
+import { parseAmountExpr } from '../lib/calc';
 import { allCurrencies, parseAmount, roundMoney } from '../lib/currency';
 import { isDateKey } from '../lib/dates';
 import { CATEGORY_COLORS } from '../lib/defaults';
@@ -8,6 +9,7 @@ import type { Account, Transfer } from '../lib/types';
 import type { Dict } from '../i18n';
 import { useStore } from '../store';
 import { Sheet, useConfirm, useFmt, useToast } from '../ui';
+import { CalcButton, ExprPreview } from './Calculator';
 
 export function accountErrorText(t: Dict, e: unknown): string {
   if (e instanceof AccountOpError) {
@@ -151,7 +153,7 @@ export function TransferForm({ initial, defaultFrom, onClose }: { initial?: Tran
   const fromAcc = accounts.find((a) => a.id === from);
   const toAcc = accounts.find((a) => a.id === to);
   const cross = !!fromAcc && !!toAcc && fromAcc.currency !== toAcc.currency;
-  const amount = parseAmount(amountText);
+  const amount = parseAmountExpr(amountText, parseAmount);
   // Suggest the received amount from the current rate until the user types their own.
   const suggested = useMemo(() => {
     if (!cross || amount === null) return null;
@@ -163,7 +165,7 @@ export function TransferForm({ initial, defaultFrom, onClose }: { initial?: Tran
   const submit = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if (amount === null || amount <= 0) return setError(t.invalidAmount);
-    const toAmount = cross ? parseAmount(toValue) : amount;
+    const toAmount = cross ? parseAmountExpr(toValue, parseAmount) : amount;
     if (toAmount === null || toAmount <= 0) return setError(t.invalidAmount);
     if (!isDateKey(date)) return setError(t.invalidDate);
     try {
@@ -214,7 +216,11 @@ export function TransferForm({ initial, defaultFrom, onClose }: { initial?: Tran
         <div className="field-row">
           <label className="field">
             <span>{t.amount}{fromAcc && ` (${fromAcc.currency})`}</span>
-            <input className="input" inputMode="decimal" value={amountText} placeholder="0" onChange={(e) => { setAmountText(e.target.value); setError(null); }} data-testid="transfer-amount" />
+            <span className="input-calc">
+              <input className="input" inputMode="decimal" value={amountText} placeholder="0" onChange={(e) => { setAmountText(e.target.value); setError(null); }} data-testid="transfer-amount" />
+              <CalcButton value={amountText} currency={fromAcc?.currency} onResult={(v) => { setAmountText(v); setError(null); }} testId="transfer-calc" />
+            </span>
+            {fromAcc && <ExprPreview text={amountText} currency={fromAcc.currency} />}
           </label>
           {cross && (
             <label className="field">

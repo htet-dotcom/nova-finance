@@ -1944,3 +1944,95 @@ body.privacy-blur .shell,
 body.privacy-blur .sheet-backdrop {
   filter: blur(18px);
 }
+
+/* ------------------------------------------------------------------ pocket calculator */
+.pcalc-btn {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--primary);
+  cursor: pointer;
+}
+.pcalc-btn:hover {
+  border-color: var(--primary);
+}
+.input-calc {
+  display: flex;
+  gap: 6px;
+}
+.input-calc .input {
+  flex: 1;
+  min-width: 0;
+}
+.input-calc .pcalc-btn {
+  width: 42px;
+}
+.expr-preview {
+  margin: 4px 0 0;
+  color: var(--primary);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.pcalc-display {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  min-height: 92px;
+}
+.pcalc-expr {
+  font-size: 1.9rem;
+  font-weight: 700;
+  word-break: break-all;
+  line-height: 1.2;
+}
+.pcalc-out {
+  min-height: 1.4em;
+  color: var(--muted);
+  font-size: 1.1rem;
+}
+.pcalc-out-muted {
+  font-size: 0.9rem;
+}
+.pcalc-keys {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.pcalc-key {
+  height: 58px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 1.35rem;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.pcalc-key:active {
+  background: var(--surface-2);
+}
+.pcalc-op {
+  background: var(--primary-soft);
+  color: var(--primary-soft-ink);
+  border-color: transparent;
+}
+.pcalc-fn {
+  color: var(--over);
+}
+.pcalc-eq {
+  background: var(--primary);
+  color: var(--primary-ink);
+  border-color: transparent;
+}

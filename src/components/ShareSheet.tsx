@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { buildDailySummary, canNativeShare, copyText, shareText, telegramShareUrl } from '../lib/share';
+import { isNative, openExternal } from '../native';
 import { useStore } from '../store';
 import { Icon, Sheet, useFmt, useToast } from '../ui';
 
@@ -52,7 +53,7 @@ export function ShareSheet({ onClose }: { onClose: () => void }) {
         <button className="btn btn-primary" onClick={native} data-testid="share-native">
           <Icon name="share" size={18} /> {canNativeShare() ? t.share : `${t.share} / ${t.copy}`}
         </button>
-        <a className="btn btn-telegram" href={telegramShareUrl(text)} target="_blank" rel="noopener noreferrer" data-testid="share-telegram">
+        <a className="btn btn-telegram" href={telegramShareUrl(text)} target="_blank" rel="noopener noreferrer" data-testid="share-telegram" onClick={(e) => { if (isNative) { e.preventDefault(); openExternal(telegramShareUrl(text)); } }}>
           <Icon name="send" size={18} /> {t.shareTelegram}
         </a>
         <button className="btn" onClick={copy} data-testid="share-copy">
