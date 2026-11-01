@@ -15,11 +15,17 @@ A private, offline-first personal finance PWA that answers one question every da
 - Manual MMK rate (`1 THB = … MMK` or `1 USD = … MMK`), labelled "Manual / User-entered rate", preferred over provider rates
 - JSON backup/restore (schema-validated, merge or replace, undo), CSV export
 - Share today's summary via native share sheet, Telegram link or clipboard
+- **Wallet / accounts**: cash, bank, mobile money (KBZPay, Wave…) and credit cards, each in its own currency, with live balances, transfers between accounts (cross-currency with the actual received amount), archive, and **net worth** in the primary currency
+- **Savings goals**: target amount and optional date, deposits/withdrawals with history, "save X per month" pace, on-track / behind status
+- **Insights**: plain-language highlights (spending pace vs last month, category changes, most expensive weekday, savings rate, no-spend days), income vs expense trend for 6 months (with table view), category breakdown, weekday pattern. Chart colors are validated for color-blind readers in light and dark mode
+- **App lock**: 4–8 digit PIN (PBKDF2-SHA-256, salted, never stored in plain text), optional fingerprint/face unlock via WebAuthn, auto-lock after time in the background, blur in the app switcher, escalating wait after 5 wrong attempts. The lock config is device-only and never part of backups
 - English & Myanmar, light & dark mode, installable, fully offline
 
 ## Privacy
 All data is stored in the browser's IndexedDB on your device. No accounts, no analytics, no server.
 The only network request fetches public reference exchange rates.
+
+The app lock keeps other people out of the app UI. It does not encrypt the IndexedDB data, so the device itself should also be locked.
 
 ## Development
 ```bash
@@ -30,5 +36,7 @@ npm run e2e        # end-to-end tests (Playwright) against a production build
 PROD_URL=https://<host>/<path>/ npm run e2e   # smoke-test a deployment
 ```
 
-Architecture: `src/lib/` holds pure, tested logic (engine, dates, fx, backup, categories, share, db).
+Architecture: `src/lib/` holds pure, tested logic (engine, dates, fx, backup, categories, share, db,
+accounts, goals, insights, lock). Data schema v2 (accounts, transfers, goals) migrates v1 databases and
+v1 backup files automatically.
 UI lives in `src/views` and `src/components` and never computes money itself.

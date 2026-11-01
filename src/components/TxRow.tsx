@@ -1,8 +1,8 @@
-import type { Category, Transaction } from '../lib/types';
+import type { Account, Category, Transaction } from '../lib/types';
 import { useStore } from '../store';
 import { useFmt } from '../ui';
 
-export function TxRow({ tx, category, onClick }: { tx: Transaction; category?: Category; onClick: () => void }) {
+export function TxRow({ tx, category, account, onClick }: { tx: Transaction; category?: Category; account?: Account; onClick: () => void }) {
   const { t, today } = useStore();
   const { money, date } = useFmt();
   const sign = tx.type === 'income' ? 1 : -1;
@@ -16,6 +16,7 @@ export function TxRow({ tx, category, onClick }: { tx: Transaction; category?: C
           <span className="tx-title">{category?.name ?? '—'}</span>
           <span className="tx-sub">
             {date(tx.date, 'day')}
+            {account && ` · ${account.icon} ${account.name}`}
             {tx.note && ` · ${tx.note}`}
             {tx.recurring && ` · ↻ ${tx.recurring.freq === 'weekly' ? t.weekly : t.monthly}`}
             {tx.date > today && ` · ${t.futureBadge}`}

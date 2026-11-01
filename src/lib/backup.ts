@@ -4,11 +4,11 @@ import { z } from 'zod';
 import { CURRENCY_CODE_RE } from './currency';
 import { isDateKey } from './dates';
 import { cleanText, defaultSettings } from './defaults';
-import type { AppData, Category, ExchangeRate, Settings, Transaction } from './types';
+import type { Account, AppData, Category, ExchangeRate, Goal, Settings, Transaction, Transfer } from './types';
 
 export const BACKUP_FORMAT = 'nova-finance-backup';
 /** Bump when the persisted shape changes, and add a migration below. */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 export const MAX_IMPORT_BYTES = 25 * 1024 * 1024;
 const MAX_AMOUNT = 1e13;
 
@@ -35,6 +35,60 @@ export const transactionSchema = z.object({
     .object({ freq: z.enum(['weekly', 'monthly']), until: dateKey.nullable().default(null) })
     .nullable()
     .default(null),
+  accountId: id.nullable().default(null),
+  createdAt: iso,
+  updatedAt: iso,
+});
+
+const color = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'invalid color');
+
+export const accountSchema = z.object({
+  id,
+  name: text(60).refine((s) => s.length > 0, 'name is required'),
+  icon: z.string().min(1).max(16),
+  color,
+  currency: code,
+  openingBalance: z.number().finite().min(-MAX_AMOUNT).max(MAX_AMOUNT).default(0),
+  order: z.number().int().min(0).max(100_000),
+  archived: z.boolean().default(false),
+  createdAt: iso,
+  updatedAt: iso,
+});
+
+export const transferSchema = z
+  .object({
+    id,
+    fromAccountId: id,
+    toAccountId: id,
+    amount: z.number().finite().positive('amount must be greater than 0').max(MAX_AMOUNT),
+    toAmount: z.number().finite().positive('amount must be greater than 0').max(MAX_AMOUNT),
+    date: dateKey,
+    note: text(500).default(''),
+    createdAt: iso,
+    updatedAt: iso,
+  })
+  .refine((x) => x.fromAccountId !== x.toAccountId, 'transfer accounts must differ');
+
+export const goalSchema = z.object({
+  id,
+  name: text(60).refine((s) => s.length > 0, 'name is required'),
+  icon: z.string().min(1).max(16),
+  color,
+  currency: code,
+  target: z.number().finite().positive('target must be greater than 0').max(MAX_AMOUNT),
+  deadline: dateKey.nullable().default(null),
+  contributions: z
+    .array(
+      z.object({
+        id,
+        date: dateKey,
+        amount: z.number().finite().min(-MAX_AMOUNT).max(MAX_AMOUNT).refine((v) => v !== 0, 'amount must not be 0'),
+        note: text(200).default(''),
+      }),
+    )
+    .max(20_000)
+    .default([]),
+  archived: z.boolean().default(false),
   createdAt: iso,
   updatedAt: iso,
 });
@@ -44,7 +98,7 @@ export const categorySchema = z.object({
   name: text(60).refine((s) => s.length > 0, 'name is required'),
   type: z.enum(['income', 'expense']),
   icon: z.string().min(1).max(16),
-  color: z.string().regex(/^#[0-9a-fA-F]{6}$/, 'invalid color'),
+  color,
   order: z.number().int().min(0).max(100_000),
   budget: money.nullable().default(null),
   fixed: z.boolean().default(false),
@@ -113,6 +167,9 @@ const envelopeSchema = z.object({
     transactions: z.array(z.unknown()).max(500_000),
     categories: z.array(z.unknown()).max(10_000),
     rates: z.array(z.unknown()).max(10_000).default([]),
+    accounts: z.array(z.unknown()).max(1_000).optional(),
+    transfers: z.array(z.unknown()).max(500_000).optional(),
+    goals: z.array(z.unknown()).max(1_000).optional(),
     settings: z.unknown(),
   }),
 });
@@ -131,7 +188,17 @@ export interface BackupFile {
 
 type RawData = Record<string, unknown>;
 export const MIGRATIONS: Record<number, (data: RawData) => RawData> = {
-  // 1: (data) => ({ ...data, newField: ... })  ← add v1→v2 here when the schema changes
+  // v1 → v2: accounts, transfers and savings goals; transactions gain `accountId`.
+  1: (data) => ({
+    ...data,
+    transactions: ((data.transactions as unknown[]) ?? []).map((t) =>
+      t && typeof t === 'object' && !('accountId' in t) ? { ...t, accountId: null } : t,
+    ),
+    accounts: data.accounts ?? [],
+    transfers: data.transfers ?? [],
+    goals: data.goals ?? [],
+  }),
+  // 2: (data) => ({ ...data, newField: ... })  ← add v2→v3 here when the schema changes
 };
 
 export function migrateData(data: RawData, fromVersion: number): RawData {
@@ -158,6 +225,9 @@ export function buildBackup(data: AppData, appVersion: string, now = new Date())
       transactions: [...data.transactions].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0)),
       categories: [...data.categories],
       rates: [...data.rates],
+      accounts: [...data.accounts],
+      transfers: [...data.transfers].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0)),
+      goals: [...data.goals],
       settings: { ...data.settings },
     },
   };
@@ -184,13 +254,42 @@ const row = (cells: unknown[]) => cells.map(csvCell).join(',');
  */
 export function buildCsv(data: AppData): string {
   const cats = new Map(data.categories.map((c) => [c.id, c]));
+  const accs = new Map(data.accounts.map((a) => [a.id, a]));
+  const accName = (id: string | null) => (id ? (accs.get(id)?.name ?? id) : '');
   const lines: string[] = [];
   lines.push('# Transactions');
-  lines.push(row(['date', 'type', 'category', 'amount', 'currency', 'note', 'recurring', 'recurring_until', 'id']));
+  lines.push(row(['date', 'type', 'category', 'amount', 'currency', 'note', 'recurring', 'recurring_until', 'account', 'id']));
   for (const t of [...data.transactions].sort((a, b) => (a.date < b.date ? -1 : 1))) {
     lines.push(
-      row([t.date, t.type, cats.get(t.categoryId)?.name ?? t.categoryId, t.amount, t.currency, t.note, t.recurring?.freq ?? '', t.recurring?.until ?? '', t.id]),
+      row([t.date, t.type, cats.get(t.categoryId)?.name ?? t.categoryId, t.amount, t.currency, t.note, t.recurring?.freq ?? '', t.recurring?.until ?? '', accName(t.accountId), t.id]),
     );
+  }
+  if (data.accounts.length) {
+    lines.push('');
+    lines.push('# Accounts');
+    lines.push(row(['name', 'icon', 'currency', 'opening_balance', 'archived', 'order', 'id']));
+    for (const a of [...data.accounts].sort((x, y) => x.order - y.order)) {
+      lines.push(row([a.name, a.icon, a.currency, a.openingBalance, a.archived ? 'yes' : 'no', a.order, a.id]));
+    }
+  }
+  if (data.transfers.length) {
+    lines.push('');
+    lines.push('# Transfers');
+    lines.push(row(['date', 'from_account', 'amount', 'from_currency', 'to_account', 'to_amount', 'to_currency', 'note', 'id']));
+    for (const x of [...data.transfers].sort((a, b) => (a.date < b.date ? -1 : 1))) {
+      lines.push(
+        row([x.date, accName(x.fromAccountId), x.amount, accs.get(x.fromAccountId)?.currency ?? '', accName(x.toAccountId), x.toAmount, accs.get(x.toAccountId)?.currency ?? '', x.note, x.id]),
+      );
+    }
+  }
+  if (data.goals.length) {
+    lines.push('');
+    lines.push('# Savings goals');
+    lines.push(row(['name', 'icon', 'currency', 'target', 'saved', 'deadline', 'archived', 'id']));
+    for (const g of data.goals) {
+      const saved = g.contributions.reduce((s, c) => s + c.amount, 0);
+      lines.push(row([g.name, g.icon, g.currency, g.target, Math.round(saved * 1e4) / 1e4, g.deadline ?? '', g.archived ? 'yes' : 'no', g.id]));
+    }
   }
   lines.push('');
   lines.push('# Categories and budgets');
@@ -278,6 +377,9 @@ export function parseBackup(textContent: string): ParseResult {
   const transactions = collect(data.transactions as unknown[], transactionSchema, 'transactions') as Transaction[];
   const categories = collect(data.categories as unknown[], categorySchema, 'categories') as Category[];
   const rates = collect((data.rates as unknown[]) ?? [], rateSchema, 'rates') as ExchangeRate[];
+  const accounts = collect((data.accounts as unknown[]) ?? [], accountSchema, 'accounts') as Account[];
+  const transfers = collect((data.transfers as unknown[]) ?? [], transferSchema, 'transfers') as Transfer[];
+  const goals = collect((data.goals as unknown[]) ?? [], goalSchema, 'goals') as Goal[];
   const settingsParsed = settingsSchema.safeParse(data.settings ?? {});
   if (!settingsParsed.success) errors.push(...issuesOf('settings', settingsParsed.error).slice(0, 5));
 
@@ -291,6 +393,20 @@ export function parseBackup(textContent: string): ParseResult {
   };
   dupes(transactions, 'transactions');
   dupes(categories, 'categories');
+  dupes(accounts, 'accounts');
+  dupes(transfers, 'transfers');
+  dupes(goals, 'goals');
+  const accIds = new Set(accounts.map((a) => a.id));
+  for (const t of transactions) {
+    if (t.accountId !== null && !accIds.has(t.accountId)) errors.push({ path: `transactions.${t.id}`, message: `Unknown account "${t.accountId}"` });
+    if (errors.length >= MAX_REPORTED) break;
+  }
+  for (const x of transfers) {
+    for (const a of [x.fromAccountId, x.toAccountId]) {
+      if (!accIds.has(a)) errors.push({ path: `transfers.${x.id}`, message: `Unknown account "${a}"` });
+    }
+    if (errors.length >= MAX_REPORTED) break;
+  }
   const catById = new Map(categories.map((c) => [c.id, c]));
   for (const t of transactions) {
     const c = catById.get(t.categoryId);
@@ -313,19 +429,22 @@ export function parseBackup(textContent: string): ParseResult {
       schemaVersion: SCHEMA_VERSION,
       exportedAt: env.data.exportedAt,
       appVersion: env.data.appVersion ?? 'unknown',
-      data: { transactions, categories, rates, settings: settingsParsed.data as Settings },
+      data: { transactions, categories, rates, accounts, transfers, goals, settings: settingsParsed.data as Settings },
     },
   };
+}
+
+export interface ImportStats {
+  added: number;
+  updated: number;
+  unchanged: number;
+  removed: number;
 }
 
 export interface ImportPlan {
   mode: 'replace' | 'merge';
   result: AppData;
-  stats: {
-    transactions: { added: number; updated: number; unchanged: number; removed: number };
-    categories: { added: number; updated: number; unchanged: number; removed: number };
-    rates: { added: number; updated: number; unchanged: number; removed: number };
-  };
+  stats: Record<'transactions' | 'categories' | 'rates' | 'accounts' | 'transfers' | 'goals', ImportStats>;
 }
 
 function mergeById<T extends { id: string; updatedAt: string }>(current: T[], incoming: T[]) {
@@ -370,24 +489,47 @@ export function planImport(current: AppData, incoming: AppData, mode: 'replace' 
         transactions: replaceStats(current.transactions, incoming.transactions),
         categories: replaceStats(current.categories, incoming.categories),
         rates: replaceStats(current.rates, incoming.rates),
+        accounts: replaceStats(current.accounts, incoming.accounts),
+        transfers: replaceStats(current.transfers, incoming.transfers),
+        goals: replaceStats(current.goals, incoming.goals),
       },
     };
   }
   const tx = mergeById(current.transactions, incoming.transactions);
   const cats = mergeById(current.categories, incoming.categories);
   const rates = mergeById(current.rates, incoming.rates);
+  const accounts = mergeById(current.accounts, incoming.accounts);
+  const transfers = mergeById(current.transfers, incoming.transfers);
+  const goals = mergeById(current.goals, incoming.goals);
+  const accIds = new Set(accounts.list.map((a) => a.id));
 
   // Re-point transactions whose category no longer matches (defensive; should not happen after validation).
   const catById = new Map(cats.list.map((c) => [c.id, c]));
   const fallback = (type: 'income' | 'expense') => cats.list.filter((c) => c.type === type).sort((a, b) => a.order - b.order)[0];
   const transactions = tx.list.map((t) => {
     const c = catById.get(t.categoryId);
-    return c && c.type === t.type ? t : { ...t, categoryId: fallback(t.type).id };
+    const fixed = c && c.type === t.type ? t : { ...t, categoryId: fallback(t.type).id };
+    return fixed.accountId !== null && !accIds.has(fixed.accountId) ? { ...fixed, accountId: null } : fixed;
   });
 
   return {
     mode,
-    result: { transactions, categories: cats.list, rates: rates.list, settings: current.settings },
-    stats: { transactions: tx.stats, categories: cats.stats, rates: rates.stats },
+    result: {
+      transactions,
+      categories: cats.list,
+      rates: rates.list,
+      accounts: accounts.list,
+      transfers: transfers.list.filter((x) => accIds.has(x.fromAccountId) && accIds.has(x.toAccountId)),
+      goals: goals.list,
+      settings: current.settings,
+    },
+    stats: {
+      transactions: tx.stats,
+      categories: cats.stats,
+      rates: rates.stats,
+      accounts: accounts.stats,
+      transfers: transfers.stats,
+      goals: goals.stats,
+    },
   };
 }

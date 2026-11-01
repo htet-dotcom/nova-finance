@@ -1,17 +1,20 @@
 import { useCallback, useEffect, useState } from 'react';
 import { TxForm } from './components/TxForm';
 import type { Transaction, TxType } from './lib/types';
+import { useLock } from './lock';
 import { useServiceWorker } from './pwa';
 import { useStore } from './store';
 import { Icon, useToast } from './ui';
 import { Budget } from './views/Budget';
 import { Dashboard } from './views/Dashboard';
 import { Exchange } from './views/Exchange';
+import { Insights } from './views/Insights';
 import { Reports } from './views/Reports';
 import { Settings } from './views/Settings';
 import { Transactions } from './views/Transactions';
+import { Wallet } from './views/Wallet';
 
-const ROUTES = ['dashboard', 'transactions', 'budget', 'exchange', 'settings', 'reports'] as const;
+const ROUTES = ['dashboard', 'transactions', 'budget', 'wallet', 'insights', 'exchange', 'settings', 'reports'] as const;
 type Route = (typeof ROUTES)[number];
 
 function parseHash(): { route: Route; sub?: string } {
@@ -23,6 +26,7 @@ export function App() {
   const { ready, loadError, t, online } = useStore();
   const sw = useServiceWorker();
   const toast = useToast();
+  const lock = useLock();
   const [{ route, sub }, setLoc] = useState(parseHash);
   const [form, setForm] = useState<{ tx?: Transaction; type?: TxType } | null>(null);
 
@@ -71,12 +75,19 @@ export function App() {
   const nav: { r: Route; icon: string; label: string }[] = [
     { r: 'dashboard', icon: 'home', label: t.navDashboard },
     { r: 'transactions', icon: 'list', label: t.navTransactions },
+    { r: 'wallet', icon: 'wallet', label: t.navWallet },
     { r: 'budget', icon: 'pie', label: t.navBudget },
-    { r: 'exchange', icon: 'swap', label: t.navExchange },
     { r: 'settings', icon: 'gear', label: t.navSettings },
   ];
-  // Desktop sidebar has room for Reports; on mobile it is reached from Dashboard and Budget.
-  const sideNav = [...nav.slice(0, 3), { r: 'reports' as Route, icon: 'file', label: t.navReports }, ...nav.slice(3)];
+  // Desktop sidebar has room for everything; on mobile, Insights/Reports are reached from
+  // Dashboard and Budget, and Exchange from Wallet.
+  const sideNav: typeof nav = [
+    ...nav.slice(0, 4),
+    { r: 'insights', icon: 'trend', label: t.navInsights },
+    { r: 'reports', icon: 'file', label: t.navReports },
+    { r: 'exchange', icon: 'swap', label: t.navExchange },
+    nav[4],
+  ];
 
   return (
     <div className="shell">
@@ -95,6 +106,11 @@ export function App() {
             </a>
           ))}
         </nav>
+        {lock.config && (
+          <button className="btn btn-soft side-lock" onClick={lock.lockNow} data-testid="lock-now-side">
+            <Icon name="lock" size={16} /> {t.lockNow}
+          </button>
+        )}
         <p className="side-privacy"><Icon name="lock" size={14} /> {t.privacyTitle}: 100% on-device</p>
       </aside>
 
@@ -111,7 +127,9 @@ export function App() {
           </div>
         )}
         {route === 'dashboard' && <Dashboard onEdit={edit} go={go} />}
-        {route === 'transactions' && <Transactions onEdit={edit} />}
+        {route === 'transactions' && <Transactions key={sub ?? 'all'} onEdit={edit} initialAccount={sub} />}
+        {route === 'wallet' && <Wallet key={sub ?? 'accounts'} initialTab={sub === 'goals' ? 'goals' : 'accounts'} />}
+        {route === 'insights' && <Insights />}
         {route === 'budget' && <Budget key={sub ?? 'summary'} initialTab={sub === 'categories' || sub === 'rules' ? sub : 'summary'} />}
         {route === 'exchange' && <Exchange />}
         {route === 'settings' && <Settings go={go} />}

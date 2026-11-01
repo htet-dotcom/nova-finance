@@ -9,15 +9,18 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import { migrateData, SCHEMA_VERSION, settingsSchema } from './backup';
 import { defaultCategories, defaultSettings } from './defaults';
-import type { AppData, Category, ExchangeRate, Settings, Transaction } from './types';
+import type { Account, AppData, Category, ExchangeRate, Goal, Settings, Transaction, Transfer } from './types';
 
 export const DB_NAME = 'nova-finance';
-export const DB_VERSION = 1;
+export const DB_VERSION = 2;
 
 interface FinanceDB extends DBSchema {
   transactions: { key: string; value: Transaction; indexes: { byDate: string } };
   categories: { key: string; value: Category };
   rates: { key: string; value: ExchangeRate };
+  accounts: { key: string; value: Account };
+  transfers: { key: string; value: Transfer };
+  goals: { key: string; value: Goal };
   kv: { key: string; value: unknown };
 }
 
@@ -36,7 +39,12 @@ export function openFinanceDb(name = DB_NAME): Promise<DB> {
           db.createObjectStore('rates', { keyPath: 'id' });
           db.createObjectStore('kv');
         }
-        // Future structural upgrades go here as `if (oldVersion < 2) { ... }`.
+        if (oldVersion < 2) {
+          db.createObjectStore('accounts', { keyPath: 'id' });
+          db.createObjectStore('transfers', { keyPath: 'id' });
+          db.createObjectStore('goals', { keyPath: 'id' });
+        }
+        // Future structural upgrades go here as `if (oldVersion < 3) { ... }`.
       },
       blocked() {
         console.warn('Database upgrade blocked by another open tab');
@@ -58,6 +66,11 @@ export async function closeFinanceDb(): Promise<void> {
 const SETTINGS_KEY = 'settings';
 const SCHEMA_KEY = 'schemaVersion';
 const SNAPSHOT_KEY = 'preImportSnapshot';
+/** App-lock configuration. Device-only: never part of backups or snapshots. */
+const LOCK_KEY = 'appLock';
+const LOCK_ATTEMPTS_KEY = 'appLockAttempts';
+
+const DATA_STORES = ['transactions', 'categories', 'rates', 'accounts', 'transfers', 'goals'] as const;
 
 async function migrateStoredData(db: DB): Promise<void> {
   const stored = (await db.get('kv', SCHEMA_KEY)) as number | undefined;
@@ -66,6 +79,9 @@ async function migrateStoredData(db: DB): Promise<void> {
     transactions: await db.getAll('transactions'),
     categories: await db.getAll('categories'),
     rates: await db.getAll('rates'),
+    accounts: await db.getAll('accounts'),
+    transfers: await db.getAll('transfers'),
+    goals: await db.getAll('goals'),
     settings: await db.get('kv', SETTINGS_KEY),
   };
   const migrated = migrateData(raw, stored) as unknown as AppData;
@@ -95,6 +111,9 @@ export async function loadAll(): Promise<AppData> {
     transactions: await db.getAll('transactions'),
     categories,
     rates: await db.getAll('rates'),
+    accounts: await db.getAll('accounts'),
+    transfers: await db.getAll('transfers'),
+    goals: await db.getAll('goals'),
     settings,
   };
 }
@@ -126,6 +145,32 @@ export async function putRates(list: ExchangeRate[]) {
 export async function deleteRate(id: string) {
   await (await openFinanceDb()).delete('rates', id);
 }
+export async function putAccounts(list: Account[]) {
+  const db = await openFinanceDb();
+  const t = db.transaction('accounts', 'readwrite');
+  await Promise.all([...list.map((a) => t.store.put(a)), t.done]);
+}
+/** Delete an account: its transactions become unassigned and its transfers are removed, atomically. */
+export async function deleteAccount(id: string, unassigned: Transaction[], transferIds: string[]) {
+  const db = await openFinanceDb();
+  const t = db.transaction(['accounts', 'transactions', 'transfers'], 'readwrite');
+  for (const tx of unassigned) await t.objectStore('transactions').put(tx);
+  for (const x of transferIds) await t.objectStore('transfers').delete(x);
+  await t.objectStore('accounts').delete(id);
+  await t.done;
+}
+export async function putTransfer(x: Transfer) {
+  await (await openFinanceDb()).put('transfers', x);
+}
+export async function deleteTransfer(id: string) {
+  await (await openFinanceDb()).delete('transfers', id);
+}
+export async function putGoal(g: Goal) {
+  await (await openFinanceDb()).put('goals', g);
+}
+export async function deleteGoal(id: string) {
+  await (await openFinanceDb()).delete('goals', id);
+}
 export async function saveSettings(s: Settings) {
   await (await openFinanceDb()).put('kv', s, SETTINGS_KEY);
 }
@@ -133,13 +178,14 @@ export async function saveSettings(s: Settings) {
 /** Atomically replace every record (used by import and migrations). */
 export async function replaceAll(data: AppData, existing?: DB): Promise<void> {
   const db = existing ?? (await openFinanceDb());
-  const t = db.transaction(['transactions', 'categories', 'rates', 'kv'], 'readwrite');
-  await t.objectStore('transactions').clear();
-  await t.objectStore('categories').clear();
-  await t.objectStore('rates').clear();
+  const t = db.transaction([...DATA_STORES, 'kv' as const], 'readwrite');
+  for (const name of DATA_STORES) await t.objectStore(name).clear();
   for (const x of data.transactions) await t.objectStore('transactions').put(x);
   for (const x of data.categories) await t.objectStore('categories').put(x);
   for (const x of data.rates) await t.objectStore('rates').put(x);
+  for (const x of data.accounts ?? []) await t.objectStore('accounts').put(x);
+  for (const x of data.transfers ?? []) await t.objectStore('transfers').put(x);
+  for (const x of data.goals ?? []) await t.objectStore('goals').put(x);
   await t.objectStore('kv').put(data.settings, SETTINGS_KEY);
   await t.objectStore('kv').put(SCHEMA_VERSION, SCHEMA_KEY);
   await t.done;
@@ -154,6 +200,23 @@ export async function loadSnapshot(): Promise<{ savedAt: string; data: AppData }
 }
 export async function clearSnapshot(): Promise<void> {
   await (await openFinanceDb()).delete('kv', SNAPSHOT_KEY);
+}
+
+export async function loadLockConfig<T>(): Promise<T | undefined> {
+  return (await (await openFinanceDb()).get('kv', LOCK_KEY)) as T | undefined;
+}
+export async function saveLockConfig<T>(cfg: T | null): Promise<void> {
+  const db = await openFinanceDb();
+  if (cfg === null) await db.delete('kv', LOCK_KEY);
+  else await db.put('kv', cfg, LOCK_KEY);
+}
+export async function loadLockAttempts<T>(): Promise<T | undefined> {
+  return (await (await openFinanceDb()).get('kv', LOCK_ATTEMPTS_KEY)) as T | undefined;
+}
+export async function saveLockAttempts<T>(v: T | null): Promise<void> {
+  const db = await openFinanceDb();
+  if (v === null) await db.delete('kv', LOCK_ATTEMPTS_KEY);
+  else await db.put('kv', v, LOCK_ATTEMPTS_KEY);
 }
 
 /** Ask the browser not to evict our data under storage pressure. */

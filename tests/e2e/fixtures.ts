@@ -32,9 +32,20 @@ export async function open(page: Page, hash = '') {
 
 const isMobile = (page: Page) => (page.viewportSize()?.width ?? 1000) < 900;
 
+/** Pages without a mobile tab, and the tab + button that leads to them. */
+const MOBILE_VIA: Record<string, [string, string]> = {
+  exchange: ['wallet', 'wallet-open-exchange'],
+  insights: ['dashboard', 'open-insights'],
+};
+
 export async function nav(page: Page, route: string) {
-  if (isMobile(page)) await page.getByTestId(`nav-${route}`).click();
-  else await page.locator(`.sidebar a[href="#/${route}"]`).click();
+  if (isMobile(page)) {
+    const via = MOBILE_VIA[route];
+    if (via) {
+      await nav(page, via[0]);
+      await page.getByTestId(via[1]).click();
+    } else await page.getByTestId(`nav-${route}`).click();
+  } else await page.locator(`.sidebar a[href="#/${route}"]`).click();
   await expect(page.getByTestId(route)).toBeVisible();
 }
 

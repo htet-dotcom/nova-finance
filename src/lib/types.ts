@@ -21,6 +21,62 @@ export interface Transaction {
   date: DateKey;
   note: string;
   recurring: Recurrence | null;
+  /** Account the money moved in/out of; null = not tracked in any account. */
+  accountId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A wallet / bank / e-money account whose balance is tracked. */
+export interface Account {
+  id: string;
+  name: string;
+  icon: string;
+  color: string;
+  currency: string;
+  /** Balance before the first recorded transaction, in `currency`. May be negative (credit card). */
+  openingBalance: number;
+  order: number;
+  /** Archived accounts are hidden from pickers and net worth, but keep their history. */
+  archived: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Money moved between two accounts. Never counts as income or expense. */
+export interface Transfer {
+  id: string;
+  fromAccountId: string;
+  toAccountId: string;
+  /** Amount leaving `fromAccountId`, in that account's currency. */
+  amount: number;
+  /** Amount arriving in `toAccountId`, in that account's currency (differs when currencies differ). */
+  toAmount: number;
+  date: DateKey;
+  note: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GoalContribution {
+  id: string;
+  date: DateKey;
+  /** Positive = money put aside, negative = money taken out. In the goal's currency. */
+  amount: number;
+  note: string;
+}
+
+export interface Goal {
+  id: string;
+  name: string;
+  icon: string;
+  color: string;
+  currency: string;
+  target: number;
+  /** Optional date the goal should be reached by. */
+  deadline: DateKey | null;
+  contributions: GoalContribution[];
+  archived: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -103,5 +159,8 @@ export interface AppData {
   transactions: Transaction[];
   categories: Category[];
   rates: ExchangeRate[];
+  accounts: Account[];
+  transfers: Transfer[];
+  goals: Goal[];
   settings: Settings;
 }

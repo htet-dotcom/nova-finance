@@ -3,16 +3,25 @@ import { ShareSheet } from '../components/ShareSheet';
 import { TxRow } from '../components/TxRow';
 import { addDays, maxKey } from '../lib/dates';
 import { summarizeRange } from '../lib/engine';
+import { goalProgress } from '../lib/goals';
 import type { Transaction } from '../lib/types';
 import { useStore } from '../store';
 import { BarChart, EmptyState, Icon, Progress, Ring, useFmt } from '../ui';
 
 export function Dashboard({ onEdit, go }: { onEdit: (tx: Transaction) => void; go: (route: string) => void }) {
-  const { budget: b, data, t, today } = useStore();
+  const { budget: b, data, t, today, netWorth } = useStore();
   const { money, date, monthYear, pct } = useFmt();
   const [sharing, setSharing] = useState(false);
   const [explain, setExplain] = useState(false);
   const cats = useMemo(() => new Map(data.categories.map((c) => [c.id, c])), [data.categories]);
+  const accs = useMemo(() => new Map(data.accounts.map((a) => [a.id, a])), [data.accounts]);
+  const activeGoals = data.goals.filter((g) => !g.archived);
+  const hasAccounts = data.accounts.some((a) => !a.archived);
+  // The goal closest to completion (but not done) is the most motivating one to show.
+  const focusGoal = useMemo(() => {
+    const open = activeGoals.map((g) => ({ g, p: goalProgress(g, today, data.settings.customCurrencies) })).filter((x) => x.p.status !== 'done');
+    return open.sort((a, z) => z.p.ratio - a.p.ratio)[0];
+  }, [activeGoals, today, data.settings.customCurrencies]);
 
   const statusText = {
     ok: t.statusOk,
@@ -50,6 +59,9 @@ export function Dashboard({ onEdit, go }: { onEdit: (tx: Transaction) => void; g
           <h1 className="title">{t.tagline}</h1>
         </div>
         <div className="head-actions">
+          <button className="btn btn-soft" onClick={() => go('insights')} data-testid="open-insights" aria-label={t.navInsights}>
+            <Icon name="trend" size={18} /> <span className="hide-xs">{t.navInsights}</span>
+          </button>
           <button className="btn btn-soft" onClick={() => go('reports')} data-testid="open-reports" aria-label={t.navReports}>
             <Icon name="file" size={18} /> <span className="hide-xs">{t.navReports}</span>
           </button>
@@ -144,6 +156,26 @@ export function Dashboard({ onEdit, go }: { onEdit: (tx: Transaction) => void; g
         )}
       </section>
 
+      {(hasAccounts || activeGoals.length > 0) && (
+        <section className="card wallet-glance" data-testid="wallet-glance">
+          {hasAccounts && (
+            <button className="glance" onClick={() => go('wallet')}>
+              <span className="stat-label">{t.netWorth}</span>
+              <strong className={netWorth.total < 0 ? 'neg' : ''} data-testid="glance-net-worth">{money(netWorth.total)}</strong>
+              <span className="muted small">{t.accountsN(data.accounts.filter((a) => !a.archived).length)}</span>
+            </button>
+          )}
+          {focusGoal && (
+            <button className="glance" onClick={() => go('wallet/goals')}>
+              <span className="stat-label">{focusGoal.g.icon} {focusGoal.g.name}</span>
+              <strong>{pct(focusGoal.p.ratio)}</strong>
+              <Progress ratio={focusGoal.p.ratio} tone={focusGoal.p.status === 'behind' || focusGoal.p.status === 'overdue' ? 'near' : 'ok'} />
+              <span className="muted small">{t.goalLeft(money(focusGoal.p.remaining, focusGoal.g.currency))}</span>
+            </button>
+          )}
+        </section>
+      )}
+
       {catWarnings.length > 0 && (
         <section className="card" data-testid="category-warnings">
           <h2>{t.categoryWarnings}</h2>
@@ -178,7 +210,7 @@ export function Dashboard({ onEdit, go }: { onEdit: (tx: Transaction) => void; g
         ) : (
           <ul className="tx-list">
             {recent.map((x) => (
-              <TxRow key={x.id} tx={x} category={cats.get(x.categoryId)} onClick={() => onEdit(x)} />
+              <TxRow key={x.id} tx={x} category={cats.get(x.categoryId)} account={x.accountId ? accs.get(x.accountId) : undefined} onClick={() => onEdit(x)} />
             ))}
           </ul>
         )}
