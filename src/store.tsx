@@ -1,5 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { accountBalances, buildTransfer, createAccount, moveAccount, netWorth, planAccountDelete, updateAccount, type AccountBalance, type AccountInput, type NetWorth, type TransferInput } from './lib/accounts';
 import { planImport, type ImportPlan } from './lib/backup';
+import { addContribution, createGoal, removeContribution, updateGoal, type GoalInput } from './lib/goals';
 import { CategoryOpError, createCategory, moveCategory, planCategoryDelete, updateCategory } from './lib/categories';
 import { allCurrencies, CURRENCY_CODE_RE } from './lib/currency';
 import { localTodayKey, isDateKey } from './lib/dates';
@@ -7,7 +9,7 @@ import * as db from './lib/db';
 import { cleanText, defaultCategories, defaultSettings, newId } from './lib/defaults';
 import { computeBudget, type BudgetSnapshot } from './lib/engine';
 import { makeManualRate, openErApiProvider, providerResultToRates, rateId } from './lib/fx';
-import type { AppData, Category, Recurrence, Settings, Transaction, TxType } from './lib/types';
+import type { Account, AppData, Category, Goal, Recurrence, Settings, Transaction, Transfer, TxType } from './lib/types';
 import { dictionaries, type Dict } from './i18n';
 
 export interface TxInput {
@@ -19,6 +21,7 @@ export interface TxInput {
   date: string;
   note: string;
   recurring: Recurrence | null;
+  accountId?: string | null;
 }
 
 export type RateRefreshState = { status: 'idle' | 'loading' | 'ok' | 'error'; message?: string; at?: string };
@@ -47,6 +50,17 @@ interface Store {
   markBackedUp(): Promise<void>;
   resetAll(): Promise<void>;
   persistent: boolean | null;
+  balances: Map<string, AccountBalance>;
+  netWorth: NetWorth;
+  saveAccount(input: AccountInput & { id?: string }): Promise<Account>;
+  moveAccount(id: string, dir: -1 | 1): Promise<void>;
+  deleteAccount(id: string): Promise<void>;
+  saveTransfer(input: TransferInput): Promise<Transfer>;
+  deleteTransfer(id: string): Promise<void>;
+  saveGoal(input: GoalInput & { id?: string }): Promise<Goal>;
+  deleteGoal(id: string): Promise<void>;
+  addGoalContribution(goalId: string, input: { amount: number; date: string; note: string }): Promise<Goal>;
+  removeGoalContribution(goalId: string, contributionId: string): Promise<Goal>;
 }
 
 const Ctx = createContext<Store | null>(null);
@@ -57,7 +71,16 @@ export function useStore(): Store {
   return s;
 }
 
-const EMPTY: AppData = { transactions: [], categories: defaultCategories(), rates: [], settings: defaultSettings() };
+const emptyData = (settings: Settings = defaultSettings()): AppData => ({
+  transactions: [],
+  categories: defaultCategories(),
+  rates: [],
+  accounts: [],
+  transfers: [],
+  goals: [],
+  settings,
+});
+const EMPTY = emptyData();
 const AUTO_REFRESH_MS = 6 * 60 * 60 * 1000;
 
 export class ValidationError extends Error {}
@@ -127,8 +150,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (input.recurring?.until && (!isDateKey(input.recurring.until) || input.recurring.until < input.date)) {
       throw new ValidationError('until');
     }
-    const now = new Date().toISOString();
     const existing = input.id ? d.transactions.find((x) => x.id === input.id) : undefined;
+    const accountId = input.accountId === undefined ? (existing?.accountId ?? null) : input.accountId;
+    if (accountId !== null && !d.accounts.some((a) => a.id === accountId)) throw new ValidationError('account');
+    const now = new Date().toISOString();
     const tx: Transaction = {
       id: existing?.id ?? newId('tx'),
       type: input.type,
@@ -138,6 +163,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       date: input.date,
       note: cleanText(input.note, 500),
       recurring: input.recurring,
+      accountId,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
@@ -187,6 +213,83 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       transactions: p.transactions.map((x) => (x.categoryId === id ? { ...x, categoryId: reassignTo, updatedAt: now } : x)),
     }));
   }, []);
+
+  // ---- accounts & transfers ----
+  const saveAccount: Store['saveAccount'] = useCallback(async (input) => {
+    const list = dataRef.current.accounts;
+    const acc = input.id ? updateAccount(list, input.id, input) : createAccount(list, input);
+    await db.putAccounts([acc]);
+    setData((p) => ({ ...p, accounts: p.accounts.some((a) => a.id === acc.id) ? p.accounts.map((a) => (a.id === acc.id ? acc : a)) : [...p.accounts, acc] }));
+    return acc;
+  }, []);
+
+  const moveAcc = useCallback(async (id: string, dir: -1 | 1) => {
+    const changed = moveAccount(dataRef.current.accounts, id, dir);
+    if (!changed.length) return;
+    await db.putAccounts(changed);
+    const byId = new Map(changed.map((a) => [a.id, a]));
+    setData((p) => ({ ...p, accounts: p.accounts.map((a) => byId.get(a.id) ?? a) }));
+  }, []);
+
+  const deleteAcc = useCallback(async (id: string) => {
+    const d = dataRef.current;
+    const { unassigned, transferIds } = planAccountDelete(d.transactions, d.transfers, id);
+    await db.deleteAccount(id, unassigned, transferIds);
+    const changed = new Map(unassigned.map((t) => [t.id, t]));
+    const gone = new Set(transferIds);
+    setData((p) => ({
+      ...p,
+      accounts: p.accounts.filter((a) => a.id !== id),
+      transactions: p.transactions.map((t) => changed.get(t.id) ?? t),
+      transfers: p.transfers.filter((x) => !gone.has(x.id)),
+    }));
+  }, []);
+
+  const saveTransfer = useCallback(async (input: TransferInput) => {
+    const d = dataRef.current;
+    const existing = input.id ? d.transfers.find((x) => x.id === input.id) : undefined;
+    const x = buildTransfer(d.accounts, existing, input);
+    await db.putTransfer(x);
+    setData((p) => ({ ...p, transfers: existing ? p.transfers.map((y) => (y.id === x.id ? x : y)) : [...p.transfers, x] }));
+    return x;
+  }, []);
+
+  const deleteTransfer = useCallback(async (id: string) => {
+    await db.deleteTransfer(id);
+    setData((p) => ({ ...p, transfers: p.transfers.filter((x) => x.id !== id) }));
+  }, []);
+
+  // ---- savings goals ----
+  const storeGoal = useCallback(async (g: Goal) => {
+    await db.putGoal(g);
+    setData((p) => ({ ...p, goals: p.goals.some((x) => x.id === g.id) ? p.goals.map((x) => (x.id === g.id ? g : x)) : [...p.goals, g] }));
+    return g;
+  }, []);
+
+  const saveGoal: Store['saveGoal'] = useCallback(async (input) => {
+    const d = dataRef.current;
+    const existing = input.id ? d.goals.find((g) => g.id === input.id) : undefined;
+    return storeGoal(existing ? updateGoal(existing, input) : createGoal(d.goals, input));
+  }, [storeGoal]);
+
+  const deleteGoal = useCallback(async (id: string) => {
+    await db.deleteGoal(id);
+    setData((p) => ({ ...p, goals: p.goals.filter((g) => g.id !== id) }));
+  }, []);
+
+  const goalById = (id: string) => {
+    const g = dataRef.current.goals.find((x) => x.id === id);
+    if (!g) throw new ValidationError('goal');
+    return g;
+  };
+  const addGoalContribution: Store['addGoalContribution'] = useCallback(
+    async (goalId, input) => storeGoal(addContribution(goalById(goalId), input, dataRef.current.settings.customCurrencies)),
+    [storeGoal],
+  );
+  const removeGoalContribution: Store['removeGoalContribution'] = useCallback(
+    async (goalId, contributionId) => storeGoal(removeContribution(goalById(goalId), contributionId, dataRef.current.settings.customCurrencies)),
+    [storeGoal],
+  );
 
   // ---- settings ----
   const updateSettings = useCallback(async (patch: Partial<Settings>) => {
@@ -275,7 +378,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [updateSettings]);
 
   const resetAll = useCallback(async () => {
-    const fresh: AppData = { transactions: [], categories: defaultCategories(), rates: [], settings: { ...defaultSettings(), language: dataRef.current.settings.language } };
+    const fresh = emptyData({ ...defaultSettings(), language: dataRef.current.settings.language });
     await db.replaceAll(fresh);
     await db.clearSnapshot();
     setSnapshotAt(null);
@@ -286,6 +389,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     () => computeBudget({ transactions: data.transactions, categories: data.categories, rates: data.rates, settings: data.settings, today }),
     [data, today],
   );
+
+  const balances = useMemo(
+    () => accountBalances({ accounts: data.accounts, transactions: data.transactions, transfers: data.transfers, rates: data.rates, settings: data.settings, today }),
+    [data.accounts, data.transactions, data.transfers, data.rates, data.settings, today],
+  );
+  const worth = useMemo(() => netWorth(data.accounts, balances, data.rates, data.settings), [data.accounts, balances, data.rates, data.settings]);
 
   // ---- theme & language side effects ----
   useEffect(() => {
@@ -322,6 +431,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     markBackedUp,
     resetAll,
     persistent,
+    balances,
+    netWorth: worth,
+    saveAccount,
+    moveAccount: moveAcc,
+    deleteAccount: deleteAcc,
+    saveTransfer,
+    deleteTransfer,
+    saveGoal,
+    deleteGoal,
+    addGoalContribution,
+    removeGoalContribution,
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

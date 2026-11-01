@@ -1,5 +1,6 @@
 import { useDeferredValue, useMemo, useState } from 'react';
 import { TxRow } from '../components/TxRow';
+import { sortAccounts } from '../lib/accounts';
 import { sortCategories } from '../lib/categories';
 import type { Transaction, TxType } from '../lib/types';
 import { useStore } from '../store';
@@ -7,7 +8,7 @@ import { EmptyState, Icon, useFmt } from '../ui';
 
 const PAGE = 100;
 
-export function Transactions({ onEdit }: { onEdit: (tx: Transaction) => void }) {
+export function Transactions({ onEdit, initialAccount }: { onEdit: (tx: Transaction) => void; initialAccount?: string }) {
   const { data, t } = useStore();
   const { date } = useFmt();
   const [q, setQ] = useState('');
@@ -15,6 +16,9 @@ export function Transactions({ onEdit }: { onEdit: (tx: Transaction) => void }) 
   const [cat, setCat] = useState('all');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [acc, setAcc] = useState(initialAccount && data.accounts.some((a) => a.id === initialAccount) ? initialAccount : 'all');
+  const accounts = useMemo(() => sortAccounts(data.accounts), [data.accounts]);
+  const accById = useMemo(() => new Map(data.accounts.map((a) => [a.id, a])), [data.accounts]);
   const [limit, setLimit] = useState(PAGE);
   const query = useDeferredValue(q.trim().toLocaleLowerCase());
   const cats = useMemo(() => new Map(data.categories.map((c) => [c.id, c])), [data.categories]);
@@ -26,6 +30,7 @@ export function Transactions({ onEdit }: { onEdit: (tx: Transaction) => void }) 
         if (cat !== 'all' && x.categoryId !== cat) return false;
         if (from && x.date < from) return false;
         if (to && x.date > to) return false;
+        if (acc === 'none' ? x.accountId !== null : acc !== 'all' && x.accountId !== acc) return false;
         if (query) {
           const c = cats.get(x.categoryId);
           const hay = `${x.note} ${c?.name ?? ''} ${x.amount} ${x.currency}`.toLocaleLowerCase();
@@ -34,7 +39,7 @@ export function Transactions({ onEdit }: { onEdit: (tx: Transaction) => void }) 
         return true;
       })
       .sort((a, z) => (a.date === z.date ? z.createdAt.localeCompare(a.createdAt) : z.date.localeCompare(a.date)));
-  }, [data.transactions, type, cat, from, to, query, cats]);
+  }, [data.transactions, type, cat, from, to, query, cats, acc]);
 
   const groups = useMemo(() => {
     const out: { date: string; items: Transaction[] }[] = [];
@@ -46,7 +51,7 @@ export function Transactions({ onEdit }: { onEdit: (tx: Transaction) => void }) 
     return out;
   }, [filtered, limit]);
 
-  const hasFilters = q || type !== 'all' || cat !== 'all' || from || to;
+  const hasFilters = q || type !== 'all' || cat !== 'all' || from || to || acc !== 'all';
   const catOptions = sortCategories(data.categories).filter((c) => type === 'all' || c.type === type);
 
   return (
@@ -76,6 +81,15 @@ export function Transactions({ onEdit }: { onEdit: (tx: Transaction) => void }) 
               </option>
             ))}
           </select>
+          {accounts.length > 0 && (
+            <select className="input" value={acc} onChange={(e) => setAcc(e.target.value)} aria-label={t.account} data-testid="filter-account">
+              <option value="all">{t.account}: {t.all}</option>
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>{a.icon} {a.name}</option>
+              ))}
+              <option value="none">{t.noAccount}</option>
+            </select>
+          )}
           <label className="mini-field">
             <span>{t.fromDate}</span>
             <input type="date" className="input" value={from} onChange={(e) => setFrom(e.target.value)} data-testid="filter-from" />
@@ -88,7 +102,7 @@ export function Transactions({ onEdit }: { onEdit: (tx: Transaction) => void }) 
         <div className="filter-foot">
           <span className="muted small" data-testid="tx-count">{t.results(filtered.length)}</span>
           {hasFilters && (
-            <button className="link-btn" onClick={() => { setQ(''); setType('all'); setCat('all'); setFrom(''); setTo(''); }}>
+            <button className="link-btn" onClick={() => { setQ(''); setType('all'); setCat('all'); setFrom(''); setTo(''); setAcc('all'); }}>
               {t.clearFilters}
             </button>
           )}
@@ -104,7 +118,7 @@ export function Transactions({ onEdit }: { onEdit: (tx: Transaction) => void }) 
               <h3 className="tx-group-head">{date(g.date, 'day')}</h3>
               <ul className="tx-list card">
                 {g.items.map((x) => (
-                  <TxRow key={x.id} tx={x} category={cats.get(x.categoryId)} onClick={() => onEdit(x)} />
+                  <TxRow key={x.id} tx={x} category={cats.get(x.categoryId)} account={x.accountId ? accById.get(x.accountId) : undefined} onClick={() => onEdit(x)} />
                 ))}
               </ul>
             </section>

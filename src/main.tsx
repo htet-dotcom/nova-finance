@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
+import { LockProvider } from './lock';
 import { initServiceWorker } from './pwa';
 import { StoreProvider } from './store';
 import { ToastProvider } from './ui';
@@ -10,7 +11,9 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <StoreProvider>
       <ToastProvider>
-        <App />
+        <LockProvider>
+          <App />
+        </LockProvider>
       </ToastProvider>
     </StoreProvider>
   </StrictMode>,

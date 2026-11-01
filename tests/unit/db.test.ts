@@ -5,13 +5,17 @@ import {
   deleteCategory,
   deleteTransaction,
   loadAll,
+  loadLockConfig,
   loadSnapshot,
   openFinanceDb,
+  putAccounts,
   putTransaction,
   replaceAll,
+  saveLockConfig,
   saveSettings,
   saveSnapshot,
 } from '../../src/lib/db';
+import { defaultCategories } from '../../src/lib/defaults';
 import { tx } from './helpers';
 
 beforeEach(async () => {
@@ -89,5 +93,52 @@ describe('IndexedDB storage', () => {
     expect(data.settings.primaryCurrency).toBe('MMK');
     expect(data.settings.savingsTarget).toBe(100);
     expect(data.settings.allowanceMode).toBe('dynamic');
+  });
+
+  it('upgrades a v1 database (app 1.x) in place without losing data', async () => {
+    // Build exactly what version 1 of the app stored: 4 object stores, schema v1 records.
+    await new Promise<void>((resolve, reject) => {
+      const req = indexedDB.open('nova-finance', 1);
+      req.onupgradeneeded = () => {
+        const d = req.result;
+        d.createObjectStore('transactions', { keyPath: 'id' }).createIndex('byDate', 'date');
+        d.createObjectStore('categories', { keyPath: 'id' });
+        d.createObjectStore('rates', { keyPath: 'id' });
+        d.createObjectStore('kv');
+      };
+      req.onsuccess = () => {
+        const d = req.result;
+        const t = d.transaction(['transactions', 'categories', 'kv'], 'readwrite');
+        const { accountId: _drop, ...v1tx } = tx('expense', 42, '2026-09-01', { id: 'old' });
+        t.objectStore('transactions').put(v1tx);
+        for (const c of defaultCategories('2026-01-01T00:00:00.000Z')) t.objectStore('categories').put(c);
+        t.objectStore('kv').put({ primaryCurrency: 'MMK' }, 'settings');
+        t.objectStore('kv').put(1, 'schemaVersion');
+        t.oncomplete = () => {
+          d.close();
+          resolve();
+        };
+        t.onerror = () => reject(t.error);
+      };
+      req.onerror = () => reject(req.error);
+    });
+
+    const data = await loadAll();
+    expect(data.transactions).toEqual([expect.objectContaining({ id: 'old', amount: 42, accountId: null })]);
+    expect(data.settings.primaryCurrency).toBe('MMK');
+    expect(data.accounts).toEqual([]);
+    expect(data.goals).toEqual([]);
+    const acc = { id: 'acc_1', name: 'Cash', icon: '💵', color: '#22c55e', currency: 'MMK', openingBalance: 0, order: 0, archived: false, createdAt: '2026-09-01T00:00:00.000Z', updatedAt: '2026-09-01T00:00:00.000Z' };
+    await putAccounts([acc]);
+    await closeFinanceDb();
+    expect((await loadAll()).accounts).toEqual([acc]);
+    expect(await (await openFinanceDb()).get('kv', 'schemaVersion')).toBe(2);
+  });
+
+  it('keeps the app-lock config out of replaceAll (imports cannot remove the lock)', async () => {
+    const data = await loadAll();
+    await saveLockConfig({ v: 1, hash: 'h' });
+    await replaceAll({ ...data, transactions: [] });
+    expect(await loadLockConfig()).toEqual({ v: 1, hash: 'h' });
   });
 });

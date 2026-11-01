@@ -22,6 +22,9 @@ function sample(): AppData {
     ],
     categories,
     rates: [makeManualRate('THB', 'MMK', 120, '2026-09-01T00:00:00.000Z')],
+    accounts: [],
+    transfers: [],
+    goals: [],
     settings: { ...defaultSettings(), savingsTarget: 500 },
   };
 }

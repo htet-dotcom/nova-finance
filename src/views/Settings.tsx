@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { ImportDialog } from '../components/ImportDialog';
+import { SecuritySettings } from '../components/SecuritySettings';
 import { backupFileName, buildBackup, buildCsv } from '../lib/backup';
 import { allCurrencies, BUILTIN_CURRENCIES, CURRENCY_CODE_RE } from '../lib/currency';
 import { useStore } from '../store';
@@ -79,6 +80,8 @@ export function Settings({ go }: { go: (route: string) => void }) {
         <p className="small">{t.privacyText}</p>
         {persistent !== null && <p className="muted small">{persistent ? t.storagePersistent : t.storageBestEffort}</p>}
       </section>
+
+      <SecuritySettings />
 
       <section className="card form">
         <h2>{t.general}</h2>

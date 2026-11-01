@@ -31,7 +31,7 @@ export function ImportDialog({ fileName, text, onClose }: { fileName: string; te
     }
   };
 
-  const sum = (k: 'added' | 'updated' | 'removed') => (plan ? plan.stats.transactions[k] + plan.stats.categories[k] + plan.stats.rates[k] : 0);
+  const sum = (k: 'added' | 'updated' | 'removed') => (plan ? Object.values(plan.stats).reduce((n, st) => n + st[k], 0) : 0);
 
   return (
     <Sheet
@@ -69,6 +69,9 @@ export function ImportDialog({ fileName, text, onClose }: { fileName: string; te
             <div>
               <strong>{t.importFrom(dateTime(parsed.backup.exportedAt))}</strong>
               <p data-testid="import-summary">{t.importSummary(parsed.backup.data.transactions.length, parsed.backup.data.categories.length, parsed.backup.data.rates.length)}</p>
+              {(parsed.backup.data.accounts.length > 0 || parsed.backup.data.goals.length > 0) && (
+                <p className="small">{t.importSummaryExtra(parsed.backup.data.accounts.length, parsed.backup.data.transfers.length, parsed.backup.data.goals.length)}</p>
+              )}
               {parsed.warnings.map((w) => <p key={w} className="small muted">{w}</p>)}
             </div>
           </div>

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { sortAccounts } from '../lib/accounts';
 import { sortCategories } from '../lib/categories';
 import { allCurrencies, parseAmount } from '../lib/currency';
 import { addDays, isDateKey } from '../lib/dates';
@@ -7,14 +8,16 @@ import { useStore, ValidationError } from '../store';
 import { Sheet, useConfirm, useFmt, useToast } from '../ui';
 
 const LAST_CUR_KEY = 'nf.lastCurrency';
+const LAST_ACC_KEY = 'nf.lastAccount';
 
-function readLastCurrency(): string | null {
+function readLast(key: string): string | null {
   try {
-    return localStorage.getItem(LAST_CUR_KEY);
+    return localStorage.getItem(key);
   } catch {
     return null;
   }
 }
+const readLastCurrency = () => readLast(LAST_CUR_KEY);
 
 export function TxForm({ initial, defaultType = 'expense', onClose }: { initial?: Transaction; defaultType?: TxType; onClose: () => void }) {
   const { data, t, today, saveTransaction, deleteTransaction } = useStore();
@@ -36,6 +39,12 @@ export function TxForm({ initial, defaultType = 'expense', onClose }: { initial?
   const [note, setNote] = useState(initial?.note ?? '');
   const [freq, setFreq] = useState<'none' | 'weekly' | 'monthly'>(initial?.recurring?.freq ?? 'none');
   const [until, setUntil] = useState(initial?.recurring?.until ?? '');
+  const accounts = useMemo(() => sortAccounts(data.accounts).filter((a) => !a.archived || a.id === initial?.accountId), [data.accounts, initial]);
+  const [accountId, setAccountId] = useState<string>(() => {
+    if (initial) return initial.accountId ?? '';
+    const last = readLast(LAST_ACC_KEY);
+    return last !== null && (last === '' || accounts.some((a) => a.id === last)) ? last : (accounts[0]?.id ?? '');
+  });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -62,9 +71,11 @@ export function TxForm({ initial, defaultType = 'expense', onClose }: { initial?
         date,
         note,
         recurring: freq === 'none' ? null : { freq, until: until || null },
+        accountId: accountId || null,
       });
       try {
         localStorage.setItem(LAST_CUR_KEY, currency);
+        if (accounts.length) localStorage.setItem(LAST_ACC_KEY, accountId);
       } catch {
         /* storage unavailable – not important */
       }
@@ -188,6 +199,18 @@ export function TxForm({ initial, defaultType = 'expense', onClose }: { initial?
           </div>
           {date > today && <p className="muted small">{t.futureBadge} · {fmtDate(date, 'long')}</p>}
         </fieldset>
+
+        {accounts.length > 0 && (
+          <label className="field">
+            <span>{t.account}</span>
+            <select className="input" value={accountId} onChange={(e) => setAccountId(e.target.value)} data-testid="tx-account">
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>{a.icon} {a.name} ({a.currency})</option>
+              ))}
+              <option value="">{t.noAccount}</option>
+            </select>
+          </label>
+        )}
 
         <label className="field">
           <span>{t.note}</span>
